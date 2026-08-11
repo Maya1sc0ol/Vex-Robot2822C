@@ -40,8 +40,8 @@ void initialize() {
 
 	//Edit These Values here to configure and tune PID!!!
 	//                 kP,  kI,  kD,   timeout
-	drive.setDrivePID({8.0, 0.0, 12.0, 3000.0});
-	drive.setTurnPID( {5.0, 0.0, 8.0, 2000.0});
+	drive.setDrivePID({0.6, 0.0, 0.2, 3000.0});
+	drive.setTurnPID( {5.0, 0.0, 0.0, 2000.0});
 
 	drive.setTrackWidth(10.8);
 	drive.setOdomConfig(warbots::Drive::odomConfig::IMU_ONLY);
@@ -125,20 +125,20 @@ void opcontrol() {
 		}
 		if(master.get_digital_new_press(pros::E_CONTROLLER_DIGITAL_A)){
 			// examplePIDFunction(-440);
-			setGoal = 440;
+			setGoal = 800;
 		}
 		if(master.get_digital_new_press(pros::E_CONTROLLER_DIGITAL_B)){
 			// examplePIDFunction(-800);
-			setGoal = 800;
+			setGoal = 1400;
 		}
 		if(master.get_digital_new_press(pros::E_CONTROLLER_DIGITAL_Y)){
 			// examplePIDFunction(-1121);
-						setGoal = 1121;
+						setGoal = 1900;
 
 		}
 		if(master.get_digital_new_press(pros::E_CONTROLLER_DIGITAL_X)){
 			// examplePIDFunction(-1310);
-						setGoal = 1310;
+						setGoal = 2400;
 
 		}
 		// groupControl(440);

@@ -15,8 +15,8 @@ void groupControl(double goal) {
     group.move((int32_t)outputMain);
 }
 void openclaw(){
-    claw.move_absolute(-650, 50);
+    claw.move_absolute(700, 400);
 }
 void closeclaw(){
-claw.move_absolute(0, 50);
+claw.move_absolute(0, 400);
 }

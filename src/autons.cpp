@@ -1,4 +1,6 @@
 #include "main.h"
+#include "pros/rtos.hpp"
+#include "warbotTemplate/util.hpp"
 
 
 
@@ -16,9 +18,14 @@ void register_autons() {
     });
 }
 
-void redAuto() {
-    // red alliance autonomous routine
-}
+void redAuto(){// red alliance autonomous routine
+  drive.PID_driveInches(30); //Forward, right, left, forward, backwards
+  pros::delay(1000);
+  drive.PID_driveInches(90);
+  pros::delay(1000);
+  drive.PID_driveInches(20);
+  }
+    
 
 void redLeft(){
     //Use this line to code to mirror left auto to right auto or reversed!
