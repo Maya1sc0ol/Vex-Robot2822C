@@ -63,6 +63,22 @@ All robot logic lives in `src/main.cpp` through five required entry points calle
 - Add headers to `include/` — both `include/` and the file's own directory are on the include path.
 - The `opcontrol()` loop runs every 20 ms (`pros::delay(20)`); keep tasks in that loop brief or offload to separate PROS tasks.
 
+### Template Preservation
+
+This project is a customization of a generic PROS V5 starter template (formerly hosted as `Warbot-Template-main`; the README still calls it "Warbot Template"). The repo will be reorganized/rewritten over time, but the underlying starter template must keep working for **V5 competition legality** — the FMS calls the five lifecycle functions above by name and expects the hot/cold package layout, so these pieces are load-bearing, not optional style:
+
+- **PROS starter scaffolding (must stay intact/compatible):**
+  - `Makefile`, `common.mk`, `firmware/` (`v5.ld`, `v5-hot.ld`, `v5-common.ld`) — hot/cold build + link
+  - `project.pros` — PROS CLI project/template config
+  - `include/main.h`, and the five competition lifecycle entry points (`initialize`, `disabled`, `competition_initialize`, `autonomous`, `opcontrol`) — required by the VEX FMS regardless of how the code inside them is organized
+  - `.github/workflows/main.yml` — CI build check
+- **Warbot template scaffolding layered on top (reusable, but not FMS-required):**
+  - `include/warbotTemplate/` (`drive.hpp`, `pid.hpp`, `util.hpp`) — drive/PID/util abstractions
+  - `src/warbot.cpp`, `src/exampleSubsystem/` — example subsystem wiring pattern
+- **Robot-2822C-specific code (expected to change freely):** the logic inside `src/main.cpp`, `src/autons.cpp`, and subsystem implementations (arm goals, claw positions, drive tuning, auton routines).
+
+A git tag `template-baseline` marks the last commit before reorganization began (`bcc62b4`) — use `git show template-baseline` or `git diff template-baseline` to recover or compare against the pre-rewrite state if anything from the starter template gets accidentally broken.
+
 ### Standard Patterns
 
 **Motor group (drivetrain):**
