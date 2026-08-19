@@ -15,7 +15,6 @@ inline warbots::PIDconfigs armPID = {1, 0.01, 0.1, 2000.0};
 inline double outputMain;
 inline double setGoal;
 //Create Functions down here, they will be accessible in your example.cpp file for you to define
-void examplePIDFunction(double goal);
 void openclaw();
 void closeclaw();
 void groupControl(double goal);

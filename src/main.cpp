@@ -1,9 +1,4 @@
 #include "main.h"
-#include "exampleSubsystem/example.hpp"
-#include "pros/misc.h"
-#include "warbotTemplate/util.hpp"
-#include <cstdlib>
-#include <set>
 
 warbots::Drive drive(
 	{-8, -3},  // Left Motors ID
@@ -35,8 +30,6 @@ void initialize() {
 
 	//Have Rotation Sensors/Odom Pods on your drivetrain?
 	//Add them Here!!
-	// drive.addHorizontalTrackingWheel(15, 3.25);
-	// drive.addVerticalTrackingWheel(-1, 2.0);
 
 	//Edit These Values here to configure and tune PID!!!
 	//                 kP,  kI,  kD,   timeout
@@ -105,12 +98,8 @@ void autonomous() {
 void opcontrol() {
 	pros::Controller master(pros::E_CONTROLLER_MASTER);
 	
-	// drive.setDriveType(warbots::Drive::TANK);
-	// drive.setDriveType(warbots::Drive::SINGLE_ARCADE);
-	// drive.setDriveType(warbots::Drive::FLIPPED_SINGLE_ARCADE);
 	drive.setDriveType(warbots::Drive::SPLIT_ARCADE);
-	// drive.setDriveType(warbots::Drive::FLIPPED_SPLIT_ARCADE);
-	
+
 	while (true) {
 		groupControl(setGoal);
 		if(master.get_digital_new_press(pros::E_CONTROLLER_DIGITAL_L2)){
@@ -120,38 +109,25 @@ void opcontrol() {
 			closeclaw();
 		}
 		if(master.get_digital_new_press(pros::E_CONTROLLER_DIGITAL_UP)){
-			// examplePIDFunction(0);
 			setGoal = 0;
 		}
 		if(master.get_digital_new_press(pros::E_CONTROLLER_DIGITAL_A)){
-			// examplePIDFunction(-440);
 			setGoal = 800;
 		}
 		if(master.get_digital_new_press(pros::E_CONTROLLER_DIGITAL_B)){
-			// examplePIDFunction(-800);
 			setGoal = 1400;
 		}
 		if(master.get_digital_new_press(pros::E_CONTROLLER_DIGITAL_Y)){
-			// examplePIDFunction(-1121);
-						setGoal = 1900;
-
+			setGoal = 1900;
 		}
 		if(master.get_digital_new_press(pros::E_CONTROLLER_DIGITAL_X)){
-			// examplePIDFunction(-1310);
-						setGoal = 2400;
-
+			setGoal = 2400;
 		}
-		// groupControl(440);
 		warbots::drawLogo();
 		drive.updatePose();
 		warbots::screenPrint("ARM" + warbots::doubleToString(arm.get_position(0), 2) , 4);
-		warbots::screenPrint("PID" + warbots::doubleToString(outputMain, 2) , 5);		
-		// warbots::screenPrint("Arm: " + warbots::doubleToString(arm.get_position(), 2), 2, pros::E_TEXT_MEDIUM);
+		warbots::screenPrint("PID" + warbots::doubleToString(outputMain, 2) , 5);
 		drive.control(master);
-	// 	warbots::screenPrint("x"+ warbots::doubleToString(drive.getPose().x,2), 3, pros::E_TEXT_MEDIUM_CENTER);
-	//    warbots::screenPrint("y"+ warbots::doubleToString(drive.getPose().y,2), 4, pros::E_TEXT_MEDIUM_CENTER);
-	//    warbots::screenPrint("angle"+ warbots::doubleToString(drive.getPose().angle,2), 5, pros::E_TEXT_MEDIUM_CENTER);
-	// 	examplePIDFunction(700); // drive arm to 200 encoder ticks
 		pros::delay(20);
 	}
 }

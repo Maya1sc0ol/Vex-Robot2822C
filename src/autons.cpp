@@ -9,7 +9,6 @@ void register_autons() {
     selector.autons_add({
         //The first part in brackets that is in quotes is what is shown on the brain
         //The second part of the brackets is the function name so whatever you named it in autos.cpp
-        //{"Example Auto", exampleAuto},
         {"Red Auto",  redAuto},
         {"Blue Auto", blueAuto},
         {"Skills",    skills},

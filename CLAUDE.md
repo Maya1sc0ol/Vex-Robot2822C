@@ -74,7 +74,7 @@ This project is a customization of a generic PROS V5 starter template (formerly 
   - `.github/workflows/main.yml` — CI build check
 - **Warbot template scaffolding layered on top (reusable, but not FMS-required):**
   - `include/warbotTemplate/` (`drive.hpp`, `pid.hpp`, `util.hpp`) — drive/PID/util abstractions
-  - `src/warbot.cpp`, `src/exampleSubsystem/` — example subsystem wiring pattern
+  - `src/exampleSubsystem/` — example subsystem wiring pattern
 - **Robot-2822C-specific code (expected to change freely):** the logic inside `src/main.cpp`, `src/autons.cpp`, and subsystem implementations (arm goals, claw positions, drive tuning, auton routines).
 
 A git tag `template-baseline` marks the last commit before reorganization began (`bcc62b4`) — use `git show template-baseline` or `git diff template-baseline` to recover or compare against the pre-rewrite state if anything from the starter template gets accidentally broken.
