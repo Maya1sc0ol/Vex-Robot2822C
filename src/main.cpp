@@ -25,6 +25,10 @@ const double ARM_SPEED_LIMIT_LOW_POS   = 0.0;     // arm position for full drive
 const double ARM_SPEED_LIMIT_HIGH_POS  = 2400.0;  // arm position for half drive speed
 const double DRIVE_SPEED_SCALE_AT_LOW  = 1.0;
 const double DRIVE_SPEED_SCALE_AT_HIGH = 0.5;
+
+// Precision driving: hold A to drop drive speed to this scale, overriding
+// the arm-height-based scale above (for lining up precise scores/placements).
+const double PRECISION_SPEED_SCALE = 0.3;
 // =====================================================
 
 warbots::Drive drive(
@@ -157,7 +161,13 @@ void opcontrol() {
 		double armPos = arm.get_position(0);
 		double t = (armPos - ARM_SPEED_LIMIT_LOW_POS) / (ARM_SPEED_LIMIT_HIGH_POS - ARM_SPEED_LIMIT_LOW_POS);
 		t = std::max(0.0, std::min(1.0, t));
-		drive.setSpeedScale(DRIVE_SPEED_SCALE_AT_LOW + t * (DRIVE_SPEED_SCALE_AT_HIGH - DRIVE_SPEED_SCALE_AT_LOW));
+		double speedScale = DRIVE_SPEED_SCALE_AT_LOW + t * (DRIVE_SPEED_SCALE_AT_HIGH - DRIVE_SPEED_SCALE_AT_LOW);
+
+		// Hold A for precision driving - overrides the arm-height scale above.
+		if (master.get_digital(pros::E_CONTROLLER_DIGITAL_A)) {
+			speedScale = PRECISION_SPEED_SCALE;
+		}
+		drive.setSpeedScale(speedScale);
 
 		warbots::drawLogo();
 		drive.updatePose();
