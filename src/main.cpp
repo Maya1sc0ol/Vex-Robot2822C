@@ -29,6 +29,28 @@ const double DRIVE_SPEED_SCALE_AT_HIGH = 0.5;
 // Precision driving: hold A to drop drive speed to this scale, overriding
 // the arm-height-based scale above (for lining up precise scores/placements).
 const double PRECISION_SPEED_SCALE = 0.3;
+
+// Horizontal odom pod (tracks lateral/strafe drift). Rotation sensor plugged
+// into a free smart port - verify against the physical port before competing.
+const int    HORIZONTAL_TRACKER_PORT     = 2;     // free port; TODO verify wiring matches
+const double HORIZONTAL_TRACKER_DIAMETER = 2.75;  // inches
+
+// TODO(distance-sensor slowdown): planned feature, not yet implemented.
+// Add a Distance sensor (free port - NOT port 2, now used by the horizontal
+// odom pod above) and, while held A / during scoring
+// approach, scale drive speed down as the sensor's reading gets smaller (close
+// to a target = slower). This must only be ACTIVE when the arm is at/above
+// whatever setpoint index first lifts it out of the sensor's field of view -
+// below that, the arm itself would false-trigger the sensor. We don't know
+// that threshold arm position yet; measure it on hardware once the real arm
+// heights/ARM_POSITIONS values are set, then gate this feature on it (e.g.
+// only active when armPositionIndex >= that measured index).
+// Also filter the raw sensor reading before trusting it: gate on
+// get_confidence() (0-63; PROS notes confidence is only meaningful at closer
+// range), take a median-of-3 (or short moving average) to reject single-frame
+// spikes, clamp how fast the reading is allowed to change per loop tick, and
+// on any rejected/low-confidence reading fail safe toward "far" (full speed)
+// rather than "close" (slow/stop) - a bad reading should never freeze the robot.
 // =====================================================
 
 warbots::Drive drive(
@@ -59,8 +81,7 @@ void initialize() {
 		}
 	});
 
-	//Have Rotation Sensors/Odom Pods on your drivetrain?
-	//Add them Here!!
+	drive.addHorizontalTrackingWheel(HORIZONTAL_TRACKER_PORT, HORIZONTAL_TRACKER_DIAMETER);
 
 	//PID gains are tuned in the CONSTANTS section at the top of this file.
 	drive.setDrivePID({DRIVE_KP, DRIVE_KI, DRIVE_KD, DRIVE_TIMEOUT_MS});
@@ -68,7 +89,7 @@ void initialize() {
 	armPID = {ARM_KP, ARM_KI, ARM_KD, ARM_TIMEOUT_MS};
 
 	drive.setTrackWidth(10.8);
-	drive.setOdomConfig(warbots::Drive::odomConfig::IMU_ONLY);
+	drive.setOdomConfig(warbots::Drive::odomConfig::IMU_HORIZONTAL);
 	drive.initImu();
 	drive.resetPose();
 	
