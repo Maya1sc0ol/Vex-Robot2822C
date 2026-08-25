@@ -106,6 +106,12 @@ void setMirrored(bool m) {
     mirrored = m;
 }
 
+// Scales all driver-control output (see control()) by this factor, 0.0-1.0.
+// Useful for capping top speed based on robot state (e.g. arm height).
+void setSpeedScale(double scale) {
+    speedScale = scale;
+}
+
 // Reset pose and sync all previous-value state so the first updatePose() call produces zero deltas.
 void resetPose(double x = 0, double y = 0, double angle = 0) {
     pose = {x, y, angle};
@@ -240,11 +246,11 @@ pivots around the stationary wheel.
 
 
 void control(pros::Controller& controller){
-    int leftx = controller.get_analog(ANALOG_LEFT_X);
-    int lefty = controller.get_analog(ANALOG_LEFT_Y);
-    int rightx = controller.get_analog(ANALOG_RIGHT_X);
-    int righty = controller.get_analog(ANALOG_RIGHT_Y);
-    
+    int leftx = (int)(controller.get_analog(ANALOG_LEFT_X) * speedScale);
+    int lefty = (int)(controller.get_analog(ANALOG_LEFT_Y) * speedScale);
+    int rightx = (int)(controller.get_analog(ANALOG_RIGHT_X) * speedScale);
+    int righty = (int)(controller.get_analog(ANALOG_RIGHT_Y) * speedScale);
+
     switch (currentControlType) {
         case TANK:
         moveLeftSide(lefty);
@@ -486,6 +492,9 @@ private:
 // --- PID configs (set via setters) ---
 PIDconfigs drivePIDConfig = {0, 0, 0, 3000};
 PIDconfigs turnPIDConfig  = {0, 0, 0, 3000};
+
+// --- Driver control speed cap (set via setSpeedScale()) ---
+double speedScale = 1.0;
 
 // --- Configuration (set at construction) ---
 double storedWheelDiameter = 0;
