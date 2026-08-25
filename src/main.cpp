@@ -30,13 +30,12 @@ const double DRIVE_SPEED_SCALE_AT_HIGH = 0.5;
 // the arm-height-based scale above (for lining up precise scores/placements).
 const double PRECISION_SPEED_SCALE = 0.3;
 
-// Horizontal odom pod (tracks lateral/strafe drift). Rotation sensor plugged
-// into a free smart port - verify against the physical port before competing.
-const int    HORIZONTAL_TRACKER_PORT     = 2;     // free port; TODO verify wiring matches
+// Horizontal odom pod (tracks lateral/strafe drift). Rotation sensor on port 6.
+const int    HORIZONTAL_TRACKER_PORT     = 6;
 const double HORIZONTAL_TRACKER_DIAMETER = 2.75;  // inches
 
 // TODO(distance-sensor slowdown): planned feature, not yet implemented.
-// Add a Distance sensor (free port - NOT port 2, now used by the horizontal
+// Add a Distance sensor (free port - NOT port 6, now used by the horizontal
 // odom pod above) and, while held A / during scoring
 // approach, scale drive speed down as the sensor's reading gets smaller (close
 // to a target = slower). This must only be ACTIVE when the arm is at/above
