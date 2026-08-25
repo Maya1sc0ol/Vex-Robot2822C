@@ -8,8 +8,7 @@
 // To add a new auto: declare it in autons.h, add one line below, implement it.
 void register_autons() {
     selector.autons_add({
-        //The first part in brackets that is in quotes is what is shown on the brain
-        //The second part of the brackets is the function name so whatever you named it in autos.cpp
+        // {shown on brain, function name}
         {"Red Auto",  redAuto},
         {"Blue Auto", blueAuto},
         {"Skills",    skills},
@@ -20,8 +19,8 @@ void register_autons() {
     });
 }
 
-void redAuto(){// red alliance autonomous routine
-  drive.PID_driveInches(30); //Forward, right, left, forward, backwards
+void redAuto(){
+  drive.PID_driveInches(30);
   pros::delay(1000);
   drive.PID_driveInches(90);
   pros::delay(1000);
@@ -30,27 +29,21 @@ void redAuto(){// red alliance autonomous routine
     
 
 void redLeft(){
-    //Use this line to code to mirror left auto to right auto or reversed!
     drive.setMirrored(true);
     drive.PID_driveInches(12);
 
 }
 
 void blueAuto() {
-    // blue alliance autonomous routine
 }
 
 void skills() {
-    // skills autonomous routine
 }
 
-// PID tuning test: drives straight 20in, pauses, drives straight back 20in,
-// while logging motor/pose data every LOG_INTERVAL_MS to an SD card CSV.
-// Edit the constants below to tune gains, change the pause, or adjust the run.
+// Drives out and back, logging motor/pose data every LOG_INTERVAL_MS to an SD card CSV.
 void pidTuneTest() {
-    // --- Edit these to tune/run the test ---
-    const double TUNE_DISTANCE_IN  = 20.0;   // one-way distance, in inches
-    const int    PAUSE_MS          = 1000;   // pause between forward and backward legs
+    const double TUNE_DISTANCE_IN  = 20.0;
+    const int    PAUSE_MS          = 1000;
     const double TUNE_KP           = 0.6;
     const double TUNE_KI           = 0.0;
     const double TUNE_KD           = 0.2;
@@ -104,13 +97,10 @@ void pidTuneTest() {
     }
 }
 
-// Turn PID tuning test: rotates +TUNE_ANGLE_DEG, pauses, rotates back -TUNE_ANGLE_DEG,
-// while logging motor/heading data every LOG_INTERVAL_MS to an SD card CSV.
-// Edit the constants below to tune gains, change the pause, or adjust the run.
+// Rotates out and back, logging motor/heading data every LOG_INTERVAL_MS to an SD card CSV.
 void pidTurnTuneTest() {
-    // --- Edit these to tune/run the test ---
-    const double TUNE_ANGLE_DEG     = 90.0;   // one-way turn angle, in degrees
-    const int    PAUSE_MS           = 1000;   // pause between the two turns
+    const double TUNE_ANGLE_DEG     = 90.0;
+    const int    PAUSE_MS           = 1000;
     const double TURN_KP            = 5.0;
     const double TURN_KI            = 0.0;
     const double TURN_KD            = 0.0;

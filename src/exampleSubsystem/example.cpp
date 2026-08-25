@@ -4,7 +4,7 @@
 #include <cstdint>
 
 void groupControl(double goal) {
-    outputMain = warbots::calculatePID(arm.get_position(), goal,armPID);
+    outputMain = warbots::calculatePID(armRotation.get_position() / 100.0, goal, armPID);
     group.move((int32_t)outputMain);
 }
 void openclaw(){

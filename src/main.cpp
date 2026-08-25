@@ -1,33 +1,17 @@
 #include "main.h"
 #include <algorithm>
 
-// ==================== CONSTANTS ====================
-// Tune everything here without digging through the rest of the code.
-
-// Drive PID (used by PID_driveInches / continuousDrive)
 const double DRIVE_KP = 0.6, DRIVE_KI = 0.0, DRIVE_KD = 0.2, DRIVE_TIMEOUT_MS = 3000.0;
-
-// Turn PID (used by PID_turnDegrees / PID_swingToAngle)
 const double TURN_KP = 5.0, TURN_KI = 0.0, TURN_KD = 0.0, TURN_TIMEOUT_MS = 2000.0;
-
-// Arm PID (used by groupControl() every opcontrol loop)
 const double ARM_KP = 1.0, ARM_KI = 0.01, ARM_KD = 0.1, ARM_TIMEOUT_MS = 2000.0;
 
-// Arm setpoints, in encoder ticks. Index 0 MUST be 0: the arm starts folded
-// all the way down at power-on, and arm.tare_position_all() (see initialize())
-// zeros the encoder wherever it physically is at that moment - so "down" = 0
-// by construction, and every other setpoint here is just "how far up from home."
 const double ARM_POSITIONS[5] = {0, 800, 1400, 1900, 2400};
 
-// Drivetrain speed cap vs. arm position - linear between these two points.
-// Below ARM_SPEED_LIMIT_LOW_POS: full speed. Above ARM_SPEED_LIMIT_HIGH_POS: half speed.
-const double ARM_SPEED_LIMIT_LOW_POS   = 0.0;     // arm position for full drive speed
-const double ARM_SPEED_LIMIT_HIGH_POS  = 2400.0;  // arm position for half drive speed
+const double ARM_SPEED_LIMIT_LOW_POS   = 0.0;
+const double ARM_SPEED_LIMIT_HIGH_POS  = 2400.0;
 const double DRIVE_SPEED_SCALE_AT_LOW  = 1.0;
 const double DRIVE_SPEED_SCALE_AT_HIGH = 0.5;
 
-// Precision driving: hold A to drop drive speed to this scale, overriding
-// the arm-height-based scale above (for lining up precise scores/placements).
 const double PRECISION_SPEED_SCALE = 0.3;
 
 // Horizontal odom pod (tracks lateral/strafe drift). Rotation sensor on port 6.
@@ -53,13 +37,12 @@ const double HORIZONTAL_TRACKER_DIAMETER = 2.75;  // inches
 // =====================================================
 
 warbots::Drive drive(
-	{-8, -3},  // Left Motors ID
-	{5, 10},  // Right Motors ID
-	3.25,  // Wheel Diameter
-	450,   // Gear Ratio = driving gear / driven gear (motor gear teeth / wheel gear teeth)
-	     // Direct drive = 1. Example: 12T motor gear -> 36T wheel gear = 12/36 = 0.333
-	true,  // Are you using an IMU on the Robot?
-	1   // If you are using an IMU, put the motor port here, if you are not using an IMU, leave at 0
+	{-8, -3},  // left motors
+	{5, 10},   // right motors
+	3.25,      // wheel diameter (in)
+	450,       // gear ratio (motor:wheel)
+	true,      // use IMU
+	1          // IMU port
 );
 
 
@@ -82,7 +65,6 @@ void initialize() {
 
 	drive.addHorizontalTrackingWheel(HORIZONTAL_TRACKER_PORT, HORIZONTAL_TRACKER_DIAMETER);
 
-	//PID gains are tuned in the CONSTANTS section at the top of this file.
 	drive.setDrivePID({DRIVE_KP, DRIVE_KI, DRIVE_KD, DRIVE_TIMEOUT_MS});
 	drive.setTurnPID( {TURN_KP,  TURN_KI,  TURN_KD,  TURN_TIMEOUT_MS});
 	armPID = {ARM_KP, ARM_KI, ARM_KD, ARM_TIMEOUT_MS};
@@ -92,7 +74,7 @@ void initialize() {
 	drive.initImu();
 	drive.resetPose();
 	
-	arm.tare_position_all();
+	armRotation.reset_position();
 	register_autons();
     pros::lcd::initialize();
 	pros::delay(2000);
@@ -151,7 +133,7 @@ void opcontrol() {
 
 	drive.setDriveType(warbots::Drive::SPLIT_ARCADE);
 
-	int armPositionIndex = 0;  // index into ARM_POSITIONS; 0 = home
+	int armPositionIndex = 0;  // 0 = home
 
 	while (true) {
 		groupControl(setGoal);
@@ -178,7 +160,7 @@ void opcontrol() {
 		// Cap drive speed based on live arm height: full speed at/below
 		// ARM_SPEED_LIMIT_LOW_POS, half speed at/above ARM_SPEED_LIMIT_HIGH_POS,
 		// linearly interpolated in between.
-		double armPos = arm.get_position(0);
+		double armPos = armRotation.get_position() / 100.0;
 		double t = (armPos - ARM_SPEED_LIMIT_LOW_POS) / (ARM_SPEED_LIMIT_HIGH_POS - ARM_SPEED_LIMIT_LOW_POS);
 		t = std::max(0.0, std::min(1.0, t));
 		double speedScale = DRIVE_SPEED_SCALE_AT_LOW + t * (DRIVE_SPEED_SCALE_AT_HIGH - DRIVE_SPEED_SCALE_AT_LOW);
@@ -191,7 +173,7 @@ void opcontrol() {
 
 		warbots::drawLogo();
 		drive.updatePose();
-		warbots::screenPrint("ARM" + warbots::doubleToString(arm.get_position(0), 2) , 4);
+		warbots::screenPrint("ARM" + warbots::doubleToString(armRotation.get_position() / 100.0, 2) , 4);
 		warbots::screenPrint("PID" + warbots::doubleToString(outputMain, 2) , 5);
 		drive.control(master);
 		pros::delay(20);
