@@ -31,9 +31,16 @@ struct robotPose{
 };
 
 // Read the robot's current position (x = right inches, y = forward inches, angle = degrees CW from forward)
-const robotPose& getPose() const { 
-    return pose; 
+const robotPose& getPose() const {
+    return pose;
 }
+
+// --- Diagnostic getters (for logging/tuning; average across each side's motors) ---
+double getLeftVelocity()  { double v = 0; for (auto& m : leftMotors)  v += m.get_actual_velocity(); return v / leftMotors.size(); }
+double getRightVelocity() { double v = 0; for (auto& m : rightMotors) v += m.get_actual_velocity(); return v / rightMotors.size(); }
+double getLeftCurrent()   { double c = 0; for (auto& m : leftMotors)  c += m.get_current_draw();     return c / leftMotors.size(); }
+double getRightCurrent()  { double c = 0; for (auto& m : rightMotors) c += m.get_current_draw();     return c / rightMotors.size(); }
+double getHeading()       { return imu.has_value() ? imu->get_heading() : 0.0; }
 
 //This function prints out the robots pose on the Brain Screen
 void testingPose(){
