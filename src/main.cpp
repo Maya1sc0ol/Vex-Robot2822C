@@ -3,12 +3,12 @@
 
 const double DRIVE_KP = 0.6, DRIVE_KI = 0.0, DRIVE_KD = 0.2, DRIVE_TIMEOUT_MS = 3000.0;
 const double TURN_KP = 5.0, TURN_KI = 0.0, TURN_KD = 0.0, TURN_TIMEOUT_MS = 2000.0;
-const double ARM_KP = 1.0, ARM_KI = 0.01, ARM_KD = 0.1, ARM_TIMEOUT_MS = 2000.0;
+const double ARM_KP = 1.0, ARM_KI = 0.0, ARM_KD = 0.1, ARM_TIMEOUT_MS = 2000.0;
 
-const double ARM_POSITIONS[5] = {0, 800, 1400, 1900, 2400};
+const double ARM_POSITIONS[5] = {236.00, 261.75, 287.50, 313.25, 339.00};
 
-const double ARM_SPEED_LIMIT_LOW_POS   = 0.0;
-const double ARM_SPEED_LIMIT_HIGH_POS  = 2400.0;
+const double ARM_SPEED_LIMIT_LOW_POS   = 236.0;
+const double ARM_SPEED_LIMIT_HIGH_POS  = 339.0;
 const double DRIVE_SPEED_SCALE_AT_LOW  = 1.0;
 const double DRIVE_SPEED_SCALE_AT_HIGH = 0.5;
 
@@ -74,7 +74,7 @@ void initialize() {
 	drive.initImu();
 	drive.resetPose();
 	
-	armRotation.reset_position();
+	armRotation.set_reversed(true);
 	register_autons();
     pros::lcd::initialize();
 	pros::delay(2000);
@@ -134,6 +134,7 @@ void opcontrol() {
 	drive.setDriveType(warbots::Drive::SPLIT_ARCADE);
 
 	int armPositionIndex = 0;  // 0 = home
+	setGoal = ARM_POSITIONS[armPositionIndex];
 
 	while (true) {
 		groupControl(setGoal);
@@ -160,7 +161,7 @@ void opcontrol() {
 		// Cap drive speed based on live arm height: full speed at/below
 		// ARM_SPEED_LIMIT_LOW_POS, half speed at/above ARM_SPEED_LIMIT_HIGH_POS,
 		// linearly interpolated in between.
-		double armPos = armRotation.get_position() / 100.0;
+		double armPos = getArmAngle();
 		double t = (armPos - ARM_SPEED_LIMIT_LOW_POS) / (ARM_SPEED_LIMIT_HIGH_POS - ARM_SPEED_LIMIT_LOW_POS);
 		t = std::max(0.0, std::min(1.0, t));
 		double speedScale = DRIVE_SPEED_SCALE_AT_LOW + t * (DRIVE_SPEED_SCALE_AT_HIGH - DRIVE_SPEED_SCALE_AT_LOW);
@@ -173,7 +174,11 @@ void opcontrol() {
 
 		warbots::drawLogo();
 		drive.updatePose();
-		warbots::screenPrint("ARM" + warbots::doubleToString(armRotation.get_position() / 100.0, 2) , 4);
+		auto& pose = drive.getPose();
+		warbots::screenPrint("X" + warbots::doubleToString(pose.x, 2), 1);
+		warbots::screenPrint("Y" + warbots::doubleToString(pose.y, 2), 2);
+		warbots::screenPrint("A" + warbots::doubleToString(pose.angle, 2), 3);
+		warbots::screenPrint("ARM" + warbots::doubleToString(armPos, 2) , 4);
 		warbots::screenPrint("PID" + warbots::doubleToString(outputMain, 2) , 5);
 		drive.control(master);
 		pros::delay(20);

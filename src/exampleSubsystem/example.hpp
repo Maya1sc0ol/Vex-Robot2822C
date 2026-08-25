@@ -16,7 +16,14 @@ inline pros::Rotation armRotation(18);
 inline warbots::PIDconfigs armPID = {1, 0.01, 0.1, 2000.0};
 inline double outputMain;
 inline double setGoal;
+
+// get_angle() wraps at 0/360; these track a continuous unwrapped angle instead.
+inline double armAngleUnwrapped = 0;
+inline double armAnglePrevRaw = 0;
+inline bool armAngleInitialized = false;
+
 //Create Functions down here, they will be accessible in your example.cpp file for you to define
 void openclaw();
 void closeclaw();
 void groupControl(double goal);
+double getArmAngle();
