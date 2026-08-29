@@ -16,11 +16,17 @@ inline pros::Rotation armRotation(18);
 inline warbots::PIDconfigs armPID = {1, 0.01, 0.1, 2000.0};
 inline double outputMain;
 inline double setGoal;
+// Once within this many degrees of the goal, stop actively correcting rather than
+// chasing encoder backlash/jump the loop can't actually resolve. Paired with the
+// arm's E_MOTOR_BRAKE_HOLD brake mode (set in initialize()), 0 output here means
+// the motor firmware locks the shaft in place instead of coasting/sagging.
+inline double armDeadbandDeg = 5.0;
 
-// get_angle() wraps at 0/360; these track a continuous unwrapped angle instead.
-inline double armAngleUnwrapped = 0;
-inline double armAnglePrevRaw = 0;
-inline bool armAngleInitialized = false;
+// Extra output added on top of the PID, shaped to peak when the arm is roughly
+// horizontal (midway through ARM_POSITIONS' 0-100 range, where gravity torque on
+// a pivoting arm is worst) and taper to ~0 at both ends (near-vertical, where
+// gravity fights the arm least). Set from ARM_GRAVITY_FF_MAX in initialize().
+inline double armGravityFF = 0.0;
 
 //Create Functions down here, they will be accessible in your example.cpp file for you to define
 void openclaw();

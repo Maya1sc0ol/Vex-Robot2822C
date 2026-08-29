@@ -2,24 +2,18 @@
 #include "main.h"
 #include "warbotTemplate/pid.hpp"
 #include <cstdint>
+#include <cmath>
 
 double getArmAngle() {
-    double raw = armRotation.get_angle() / 100.0;
-    if (!armAngleInitialized) {
-        armAngleUnwrapped = raw;
-        armAngleInitialized = true;
-    } else {
-        double delta = raw - armAnglePrevRaw;
-        if (delta > 180.0) delta -= 360.0;
-        else if (delta < -180.0) delta += 360.0;
-        armAngleUnwrapped += delta;
-    }
-    armAnglePrevRaw = raw;
-    return armAngleUnwrapped;
+    return armRotation.get_angle() / 100.0;
 }
 
 void groupControl(double goal) {
-    outputMain = warbots::calculatePID(getArmAngle(), goal, armPID);
+    double current = getArmAngle();
+    double pidOutput = warbots::calculateAngularPID(current, goal, armPID, armDeadbandDeg);
+    // Peaks at current=50 (roughly horizontal), 0 at current=0 or 100 (roughly vertical).
+    double gravityFF = armGravityFF * std::sin((current / 100.0) * M_PI);
+    outputMain = pidOutput + gravityFF;
     group.move((int32_t)outputMain);
 }
 void openclaw(){

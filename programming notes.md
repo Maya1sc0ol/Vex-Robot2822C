@@ -9,5 +9,27 @@ drive forwared 12
 turn 90
 drive forwared and lift to level 1
 score (open the claw, lift the arm, then back up)
-go backwards to a place and lower the arm
-tu
+
+Red auto
+close claw
+lift arm to fist level
+drive forward 3 inches
+score= open claw
+raise arm to highest level
+put arm all the way down
+turn -45 degrees
+drive forward 8 inches
+drive backwards 13 1/2 inches
+finished
+
+Blue auto
+clow claw 
+lift arm to first level
+drive forward 3 inches
+score= open claw
+raise arm to highest level
+put arm all the way down
+turn -45 degrees
+drive forward 8 inches
+drive backwards 13 1/2 inches
+finished
