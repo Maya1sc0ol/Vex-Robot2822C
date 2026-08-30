@@ -34,7 +34,7 @@ void redAuto(){
     pros::delay(CLAW_SETTLE_MS);
     armGoTo(ARM_FIRST_LEVEL_DEG, ARM_TOLERANCE_DEG);
 
-    drive.PID_driveInches(RED_APPROACH_IN);
+    drive.PID_driveInches(RED_APPROACH_IN, 127, 0.5, true);
 
     openclaw();
     pros::delay(CLAW_SETTLE_MS);
@@ -42,14 +42,14 @@ void redAuto(){
     armGoTo(ARM_HOME_DEG, ARM_TOLERANCE_DEG);
 
     drive.PID_turnDegrees(RED_POST_TURN_DEG);
-    drive.PID_driveInches(RED_EXIT_FORWARD_IN);
-    drive.PID_driveInches(RED_EXIT_BACK_IN);
+    drive.PID_driveInches(RED_EXIT_FORWARD_IN, 127, 0.5, true);
+    drive.PID_driveInches(RED_EXIT_BACK_IN, 127, 0.5, true);
 }
 
 
 void redLeft(){
     drive.setMirrored(true);
-    drive.PID_driveInches(12);
+    drive.PID_driveInches(12, 127, 0.5, true);
 
 }
 
@@ -61,9 +61,9 @@ void skills() {
 
 // Drives out and back, logging motor/pose data every LOG_INTERVAL_MS to an SD card CSV.
 void pidTuneTest() {
-    const double TUNE_DISTANCE_IN  = 20.0;
+    const double TUNE_DISTANCE_IN  = 12.0;
     const int    PAUSE_MS          = 1000;
-    const double TUNE_KP           = 0.6;
+    const double TUNE_KP           = 6;
     const double TUNE_KI           = 0.0;
     const double TUNE_KD           = 0.2;
     const double TUNE_TIMEOUT_MS   = 3000.0;
@@ -79,20 +79,25 @@ void pidTuneTest() {
     currentLeg = 0;   // 1 = outbound leg, 2 = return leg
     runLogger  = true;
 
+    // Baseline the horizontal tracker so logged lateral drift starts at zero for this test,
+    // independent of whatever the sensor accumulated before this run.
+    const double lateralStart = drive.getHorizontalTrackerInches();
+
     FILE* logFile = fopen(LOG_FILE_PATH, "w");
     if (logFile != nullptr) {
-        fprintf(logFile, "timestamp_ms,leg,left_velocity,right_velocity,left_current,right_current,heading_deg,pose_x,pose_y,pose_angle,battery_pct\n");
+        fprintf(logFile, "timestamp_ms,leg,left_velocity,right_velocity,left_current,right_current,heading_deg,pose_x,pose_y,pose_angle,lateral_in,battery_pct\n");
     }
 
     pros::Task loggerTask([&]() {
         while (runLogger) {
             if (logFile != nullptr) {
                 auto& pose = drive.getPose();
-                fprintf(logFile, "%u,%d,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.1f\n",
+                fprintf(logFile, "%u,%d,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.1f\n",
                     pros::millis(), currentLeg,
                     drive.getLeftVelocity(), drive.getRightVelocity(),
                     drive.getLeftCurrent(), drive.getRightCurrent(),
                     drive.getHeading(), pose.x, pose.y, pose.angle,
+                    drive.getHorizontalTrackerInches() - lateralStart,
                     pros::battery::get_capacity());
             }
             pros::delay(LOG_INTERVAL_MS);

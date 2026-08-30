@@ -41,6 +41,12 @@ double getRightVelocity() { double v = 0; for (auto& m : rightMotors) v += m.get
 double getLeftCurrent()   { double c = 0; for (auto& m : leftMotors)  c += m.get_current_draw();     return c / leftMotors.size(); }
 double getRightCurrent()  { double c = 0; for (auto& m : rightMotors) c += m.get_current_draw();     return c / rightMotors.size(); }
 double getHeading()       { return imu.has_value() ? imu->get_heading() : 0.0; }
+// Raw horizontal tracking wheel position in inches (does not consume odometry's prev-value state,
+// so it's safe to sample from tuning/logging code without disturbing updatePose()).
+double getHorizontalTrackerInches() {
+    if (!horizontalTracker.has_value()) return 0.0;
+    return (horizontalTracker->get_position() / 36000.0) * M_PI * horizontalTrackerDiameter;
+}
 
 //This function prints out the robots pose on the Brain Screen
 void testingPose(){
@@ -306,7 +312,8 @@ void PID_driveInches(double inches, int maxSpeed = 127,
         while (true) {
             // Timeout check.
             if (pros::millis() - startTime >= (uint32_t)drivePIDConfig.timeout) break;
-            
+            if (checkAutonAbort()) break;
+
             // Update odometry (honours whatever odomConfig was set in main).
             updatePose();
             
@@ -361,6 +368,7 @@ void PID_driveInches(double inches, int maxSpeed = 127,
             if(pros::millis() - startTime >= (uint32_t)drivePIDConfig.timeout) {
                 break;
             }
+            if (checkAutonAbort()) break;
             //Updates the pose
             updatePose();
             double traveled = (pose.x - startingX) * std::sin(startingAngleR)
@@ -396,9 +404,10 @@ void PID_driveInches(double inches, int maxSpeed = 127,
         
         while (true) {
             if (pros::millis() - startTime >= (uint32_t)turnPIDConfig.timeout) break;
-            
+            if (checkAutonAbort()) break;
+
             updatePose();
-            
+
             // Signed heading change since the start, wrapped to [-180, 180].
             double turned = wrap180(pose.angle - a0);
             
@@ -455,6 +464,7 @@ void PID_driveInches(double inches, int maxSpeed = 127,
         if (pros::millis() - startTime >= (uint32_t)turnPIDConfig.timeout) {
             break;
         }
+        if (checkAutonAbort()) break;
 
         updatePose();
 

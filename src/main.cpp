@@ -1,7 +1,7 @@
 #include "main.h"
 #include <algorithm>
 
-const double DRIVE_KP = 0.6, DRIVE_KI = 0.0, DRIVE_KD = 0.2, DRIVE_TIMEOUT_MS = 3000.0;
+const double DRIVE_KP = 1.5, DRIVE_KI = 0.0, DRIVE_KD = 0.2, DRIVE_TIMEOUT_MS = 3000.0;
 const double TURN_KP = 5.0, TURN_KI = 0.0, TURN_KD = 0.0, TURN_TIMEOUT_MS = 2000.0;
 const double ARM_KP = 3.5, ARM_KI = 0.0, ARM_KD = 0.35, ARM_TIMEOUT_MS = 2000.0;
 
@@ -42,12 +42,19 @@ warbots::Drive drive(
  * to keep execution time for this mode under a few seconds.
  */
 void initialize() {
+	// Set first, before anything else runs, so the arm sits in HOLD for as little
+	// time as possible unbraked - minimizes gravity sag before the hold-servo
+	// engages, which otherwise produces a small corrective snap.
+	group.set_brake_mode(pros::E_MOTOR_BRAKE_HOLD);
+
 	pros::Task logo_task([]() {
 		while (true) {
 			drawLogo();
 			pros::delay(20);
 			warbots::screenPrint("Warbot-Template", 7, pros::E_TEXT_LARGE_CENTER);
-			
+			// DIAGNOSTIC (temporary): watch this during boot to see exactly when
+			// the arm twitch happens.
+			warbots::screenPrint("ARM" + warbots::doubleToString(getArmAngle(), 2), 6);
 		}
 	});
 
@@ -58,7 +65,6 @@ void initialize() {
 	armPID = {ARM_KP, ARM_KI, ARM_KD, ARM_TIMEOUT_MS};
 	armGravityFF = ARM_GRAVITY_FF_MAX;
 	armRampDegPerTick = ARM_RAMP_DEG_PER_TICK;
-	group.set_brake_mode(pros::E_MOTOR_BRAKE_HOLD);
 
 	drive.setTrackWidth(10.8);
 	drive.setOdomConfig(warbots::Drive::odomConfig::IMU_HORIZONTAL);
@@ -73,62 +79,50 @@ void initialize() {
 	selector.init();
 }
 
-/**
- * Runs while the robot is in the disabled state of Field Management System or
- * the VEX Competition Switch, following either autonomous or opcontrol. When
- * the robot is enabled, this task will exit.
- */
+
 void disabled() {}
 
-/**
- * Runs after initialize(), and before autonomous when connected to the Field
- * Management System or the VEX Competition Switch. This is intended for
- * competition-specific initialization routines, such as an autonomous selector
- * on the LCD.
- *
- * This task will exit when the robot is enabled and autonomous or opcontrol
- * starts.
- */
+
 void competition_initialize() {}
 
-/**
- * Runs the user autonomous code. This function will be started in its own task
- * with the default priority and stack size whenever the robot is enabled via
- * the Field Management System or the VEX Competition Switch in the autonomous
- * mode. Alternatively, this function may be called in initialize or opcontrol
- * for non-competition testing purposes.
- *
- * If the robot is disabled or communications is lost, the autonomous task
- * will be stopped. Re-enabling the robot will restart the task, not re-start it
- * from where it left off.
- */
+
 void autonomous() {
 	selector.selected_auton_call();
 }
 
-/**
- * Runs the operator control code. This function will be started in its own task
- * with the default priority and stack size whenever the robot is enabled via
- * the Field Management System or the VEX Competition Switch in the operator
- * control mode.
- *
- * If no competition control is connected, this function will run immediately
- * following initialize().
- *
- * If the robot is disabled or communications is lost, the
- * operator control task will be stopped. Re-enabling the robot will restart the
- * task, not resume it from where it left off.
- */
-void opcontrol() {
-	pros::Controller master(pros::E_CONTROLLER_MASTER);
 
+void opcontrol() {
 	drive.setDriveType(warbots::Drive::SPLIT_ARCADE);
 
 	int armPositionIndex = 0;  // 0 = home
 	double armTargetGoal = ARM_POSITIONS[armPositionIndex];
 	setGoal = getArmAngle();  // ramp from wherever the arm actually is, not a snap to home
+	armGravityFFScale = 0.0;  // ease feedforward in too, instead of an un-ramped first-tick kick
 
 	while (true) {
+		// TEST ONLY - remove before competition. Runs the selected auton
+		// synchronously (blocking, same as a real competition switch would) for
+		// bench testing. Pressing Y again mid-run is noticed by the auton's own
+		// blocking loops (via checkAutonAbort()) so it can exit early on its own.
+		if (master.get_digital_new_press(pros::E_CONTROLLER_DIGITAL_Y)) {
+			warbots::autonAbortRequested = false;
+			autonomous();
+
+			// Resync teleop's tracked arm target to wherever the arm actually
+			// ended up (completed or aborted), so stepping/ramping resumes from
+			// the real position instead of a stale target.
+			setGoal = getArmAngle();
+			armGravityFFScale = 0.0;
+			int nearest = 0;
+			double bestDist = std::fabs(ARM_POSITIONS[0] - setGoal);
+			for (int i = 1; i < 5; i++) {
+				double dist = std::fabs(ARM_POSITIONS[i] - setGoal);
+				if (dist < bestDist) { bestDist = dist; nearest = i; }
+			}
+			armPositionIndex = nearest;
+			armTargetGoal = ARM_POSITIONS[armPositionIndex];
+		}
+
 		// Ease setGoal toward armTargetGoal by at most armRampDegPerTick this
 		// tick, so groupControl() never sees a big instantaneous step.
 		double rampStep = armTargetGoal - setGoal;
@@ -155,12 +149,6 @@ void opcontrol() {
 		if(master.get_digital_new_press(pros::E_CONTROLLER_DIGITAL_LEFT)){
 			armPositionIndex = 0;
 			armTargetGoal = ARM_POSITIONS[armPositionIndex];
-		}
-
-		// TEST ONLY - remove before competition. Runs whatever auton is selected
-		// on the LCD without needing a Match timer or competition switch.
-		if(master.get_digital_new_press(pros::E_CONTROLLER_DIGITAL_Y)){
-			autonomous();
 		}
 
 		// Cap drive speed based on live arm height: full speed at/below

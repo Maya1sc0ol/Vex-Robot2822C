@@ -3,7 +3,22 @@
 #include "warbotTemplate/logo_data.hpp"
 
 namespace warbots {
-    
+
+    // Shared controller handle so a running auton (called synchronously from
+    // opcontrol for bench testing) can poll for a second button press to abort
+    // itself, without a second task/Controller instance.
+    inline pros::Controller master(pros::E_CONTROLLER_MASTER);
+
+    // Set once a fresh Y press is seen while an auton is running; checked by
+    // Drive's blocking PID loops and armGoTo() so they can exit cleanly via
+    // their own existing stop-motors code, instead of force-killing a task.
+    inline volatile bool autonAbortRequested = false;
+
+    inline bool checkAutonAbort() {
+        if (master.get_digital_new_press(pros::E_CONTROLLER_DIGITAL_Y)) autonAbortRequested = true;
+        return autonAbortRequested;
+    }
+
 template <typename Condition>
 void waitUntil(Condition condition) {
   while (!condition()) {

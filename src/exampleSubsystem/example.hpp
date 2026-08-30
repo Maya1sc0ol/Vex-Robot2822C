@@ -28,6 +28,13 @@ inline double armDeadbandDeg = 5.0;
 // gravity fights the arm least). Set from ARM_GRAVITY_FF_MAX in initialize().
 inline double armGravityFF = 0.0;
 
+// Scales armGravityFF from 0 up to 1 over the first several groupControl() calls
+// after control (re)starts. Reset to 0 whenever opcontrol() re-seeds setGoal from
+// the arm's actual position (teleop start, and after a bench-tested auton run) so
+// the feedforward can't apply its full, un-ramped value as a sudden first-tick kick.
+inline double armGravityFFScale = 1.0;
+inline double armGravityFFRampStep = 0.1;
+
 // Max degrees the arm's commanded goal is allowed to move per control tick,
 // shared by opcontrol()'s ramp and armGoTo() so a big target change never hands
 // the PID a big instantaneous error. Set from ARM_RAMP_DEG_PER_TICK in initialize().

@@ -11,8 +11,12 @@ double getArmAngle() {
 void groupControl(double goal) {
     double current = getArmAngle();
     double pidOutput = warbots::calculateAngularPID(current, goal, armPID, armDeadbandDeg);
+    if (armGravityFFScale < 1.0) {
+        armGravityFFScale += armGravityFFRampStep;
+        if (armGravityFFScale > 1.0) armGravityFFScale = 1.0;
+    }
     // Peaks at current=50 (roughly horizontal), 0 at current=0 or 100 (roughly vertical).
-    double gravityFF = armGravityFF * std::sin((current / 100.0) * M_PI);
+    double gravityFF = armGravityFF * armGravityFFScale * std::sin((current / 100.0) * M_PI);
     outputMain = pidOutput + gravityFF;
     group.move((int32_t)outputMain);
 }
@@ -35,6 +39,7 @@ void armGoTo(double targetDeg, double toleranceDeg) {
 
     while (true) {
         if (pros::millis() - startTime >= (uint32_t)armPID.timeout) break;
+        if (warbots::checkAutonAbort()) break;
 
         double rampStep = targetDeg - rampedGoal;
         if (rampStep > armRampDegPerTick) rampStep = armRampDegPerTick;
