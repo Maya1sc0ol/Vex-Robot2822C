@@ -28,8 +28,14 @@ inline double armDeadbandDeg = 5.0;
 // gravity fights the arm least). Set from ARM_GRAVITY_FF_MAX in initialize().
 inline double armGravityFF = 0.0;
 
+// Max degrees the arm's commanded goal is allowed to move per control tick,
+// shared by opcontrol()'s ramp and armGoTo() so a big target change never hands
+// the PID a big instantaneous error. Set from ARM_RAMP_DEG_PER_TICK in initialize().
+inline double armRampDegPerTick = 10.0;
+
 //Create Functions down here, they will be accessible in your example.cpp file for you to define
 void openclaw();
 void closeclaw();
 void groupControl(double goal);
 double getArmAngle();
+void armGoTo(double targetDeg, double toleranceDeg = 3.0);

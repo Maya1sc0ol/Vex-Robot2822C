@@ -5,22 +5,8 @@ const double DRIVE_KP = 0.6, DRIVE_KI = 0.0, DRIVE_KD = 0.2, DRIVE_TIMEOUT_MS = 
 const double TURN_KP = 5.0, TURN_KI = 0.0, TURN_KD = 0.0, TURN_TIMEOUT_MS = 2000.0;
 const double ARM_KP = 3.5, ARM_KI = 0.0, ARM_KD = 0.35, ARM_TIMEOUT_MS = 2000.0;
 
-// Max degrees setGoal is allowed to move per opcontrol tick (20ms) toward the
-// target setpoint, instead of jumping straight to it. Bounds how big a step the
-// PID ever has to react to at once, so a button press can't hand it a big
-// instantaneous error - the direct cause of the slam/overshoot "jerk" seen when
-// setGoal jumped instantly across the full range.
 const double ARM_RAMP_DEG_PER_TICK = 10.0;
-
-// Extra output added on top of the arm PID to fight gravity torque, which peaks
-// when the arm is roughly horizontal (around ARM_POSITIONS' midpoint, ~50) and
-// is near 0 at the folded/raised extremes (~0 and ~100). This is why movement
-// "through perpendicular" was weaker than movement near home.
 const double ARM_GRAVITY_FF_MAX = 25.0;
-
-// Recalibrated after the rotation sensor's absolute zero was reset with the arm
-// at true home - was {236.00, 261.75, 287.50, 313.25, 339.00} against the old
-// (now stale) zero reference. Evenly spaced across the same ~100-degree span.
 const double ARM_POSITIONS[5] = {0.00, 25.00, 50.00, 75.00, 100.00};
 
 const double ARM_SPEED_LIMIT_LOW_POS   = 0.0;
@@ -35,28 +21,14 @@ const int    HORIZONTAL_TRACKER_PORT     = 6;
 const double HORIZONTAL_TRACKER_DIAMETER = 2.75;  // inches
 
 // TODO(distance-sensor slowdown): planned feature, not yet implemented.
-// Add a Distance sensor (free port - NOT port 6, now used by the horizontal
-// odom pod above) and, while held A / during scoring
-// approach, scale drive speed down as the sensor's reading gets smaller (close
-// to a target = slower). This must only be ACTIVE when the arm is at/above
-// whatever setpoint index first lifts it out of the sensor's field of view -
-// below that, the arm itself would false-trigger the sensor. We don't know
-// that threshold arm position yet; measure it on hardware once the real arm
-// heights/ARM_POSITIONS values are set, then gate this feature on it (e.g.
-// only active when armPositionIndex >= that measured index).
-// Also filter the raw sensor reading before trusting it: gate on
-// get_confidence() (0-63; PROS notes confidence is only meaningful at closer
-// range), take a median-of-3 (or short moving average) to reject single-frame
-// spikes, clamp how fast the reading is allowed to change per loop tick, and
-// on any rejected/low-confidence reading fail safe toward "far" (full speed)
-// rather than "close" (slow/stop) - a bad reading should never freeze the robot.
-// =====================================================
+// While held A / during a scoring approach, scale drive speed down as the
+// distance sensor's reading gets smaller (close to a target = slower).
 
 warbots::Drive drive(
 	{-8, -3},  // left motors
 	{5, 10},   // right motors
 	3.25,      // wheel diameter (in)
-	450,       // gear ratio (motor:wheel)
+	0.75,      // gear ratio (motor:wheel) - 36T motor-side to 48T wheel-side, 36/48
 	true,      // use IMU
 	1          // IMU port
 );
@@ -85,6 +57,7 @@ void initialize() {
 	drive.setTurnPID( {TURN_KP,  TURN_KI,  TURN_KD,  TURN_TIMEOUT_MS});
 	armPID = {ARM_KP, ARM_KI, ARM_KD, ARM_TIMEOUT_MS};
 	armGravityFF = ARM_GRAVITY_FF_MAX;
+	armRampDegPerTick = ARM_RAMP_DEG_PER_TICK;
 	group.set_brake_mode(pros::E_MOTOR_BRAKE_HOLD);
 
 	drive.setTrackWidth(10.8);
@@ -92,9 +65,6 @@ void initialize() {
 	drive.initImu();
 	drive.resetPose();
 	
-	// Raw sensor data already increases as the arm physically rises (confirmed after
-	// the fresh zero-reset at home), so no software mirroring is needed - reversing
-	// here would make get_angle() report the opposite of ARM_POSITIONS' 0->100 scale.
 	armRotation.set_reversed(false);
 	register_autons();
     pros::lcd::initialize();
@@ -159,11 +129,11 @@ void opcontrol() {
 	setGoal = getArmAngle();  // ramp from wherever the arm actually is, not a snap to home
 
 	while (true) {
-		// Ease setGoal toward armTargetGoal by at most ARM_RAMP_DEG_PER_TICK this
+		// Ease setGoal toward armTargetGoal by at most armRampDegPerTick this
 		// tick, so groupControl() never sees a big instantaneous step.
 		double rampStep = armTargetGoal - setGoal;
-		if (rampStep > ARM_RAMP_DEG_PER_TICK) rampStep = ARM_RAMP_DEG_PER_TICK;
-		else if (rampStep < -ARM_RAMP_DEG_PER_TICK) rampStep = -ARM_RAMP_DEG_PER_TICK;
+		if (rampStep > armRampDegPerTick) rampStep = armRampDegPerTick;
+		else if (rampStep < -armRampDegPerTick) rampStep = -armRampDegPerTick;
 		setGoal += rampStep;
 
 		groupControl(setGoal);
@@ -185,6 +155,12 @@ void opcontrol() {
 		if(master.get_digital_new_press(pros::E_CONTROLLER_DIGITAL_LEFT)){
 			armPositionIndex = 0;
 			armTargetGoal = ARM_POSITIONS[armPositionIndex];
+		}
+
+		// TEST ONLY - remove before competition. Runs whatever auton is selected
+		// on the LCD without needing a Match timer or competition switch.
+		if(master.get_digital_new_press(pros::E_CONTROLLER_DIGITAL_Y)){
+			autonomous();
 		}
 
 		// Cap drive speed based on live arm height: full speed at/below

@@ -3,30 +3,49 @@
 #include "warbotTemplate/util.hpp"
 #include <cstdio>
 
+// --- Auton-wide constants ---
+const double ARM_HOME_DEG        = 0.0;
+const double ARM_FIRST_LEVEL_DEG = 25.0;
+const double ARM_TOP_DEG         = 100.0;
+const double ARM_TOLERANCE_DEG   = 3.0;
+const int    CLAW_SETTLE_MS      = 500;  // time to let the claw finish moving before continuing
 
+const double RED_APPROACH_IN     = 3.0;
+const double RED_POST_TURN_DEG   = -45.0;
+const double RED_EXIT_FORWARD_IN = 8.0;
+const double RED_EXIT_BACK_IN    = -13.5;
 
 // To add a new auto: declare it in autons.h, add one line below, implement it.
 void register_autons() {
     selector.autons_add({
-        // {shown on brain, function name}
+        // {shown on brain, function name} - first entry is the default selection
+        {"PID Tune Test", pidTuneTest},
         {"Red Auto",  redAuto},
         {"Blue Auto", blueAuto},
         {"Skills",    skills},
         {"Red Left", redLeft},
-        {"PID Tune Test", pidTuneTest},
         {"PID Turn Tune Test", pidTurnTuneTest}
 
     });
 }
 
 void redAuto(){
-  drive.PID_driveInches(30);
-  pros::delay(1000);
-  drive.PID_driveInches(90);
-  pros::delay(1000);
-  drive.PID_driveInches(20);
-  }
-    
+    closeclaw();
+    pros::delay(CLAW_SETTLE_MS);
+    armGoTo(ARM_FIRST_LEVEL_DEG, ARM_TOLERANCE_DEG);
+
+    drive.PID_driveInches(RED_APPROACH_IN);
+
+    openclaw();
+    pros::delay(CLAW_SETTLE_MS);
+    armGoTo(ARM_TOP_DEG, ARM_TOLERANCE_DEG);
+    armGoTo(ARM_HOME_DEG, ARM_TOLERANCE_DEG);
+
+    drive.PID_turnDegrees(RED_POST_TURN_DEG);
+    drive.PID_driveInches(RED_EXIT_FORWARD_IN);
+    drive.PID_driveInches(RED_EXIT_BACK_IN);
+}
+
 
 void redLeft(){
     drive.setMirrored(true);
