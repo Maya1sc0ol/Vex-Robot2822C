@@ -11,3 +11,6 @@ void blueAuto();
 void skills();
 void pidTuneTest();
 void pidTurnTuneTest();
+void driveOdomPodTest();
+void driveEncoderOnlyTest();
+void odomSquareTest();

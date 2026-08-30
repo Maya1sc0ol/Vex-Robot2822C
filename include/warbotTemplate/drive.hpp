@@ -47,6 +47,32 @@ double getHorizontalTrackerInches() {
     if (!horizontalTracker.has_value()) return 0.0;
     return (horizontalTracker->get_position() / 36000.0) * M_PI * horizontalTrackerDiameter;
 }
+// Raw horizontal tracking wheel velocity in inches/sec (side-effect-free, like getHorizontalTrackerInches()).
+double getHorizontalTrackerVelocity() {
+    if (!horizontalTracker.has_value()) return 0.0;
+    return (horizontalTracker->get_velocity() / 36000.0) * M_PI * horizontalTrackerDiameter;
+}
+
+// --- Per-motor diagnostics (for logging; each side has multiple physical motors that can
+// individually stall/slip/overheat in ways a side-average can mask) ---
+struct MotorTelemetry {
+    double velocity = 0, current = 0, voltage = 0, temperature = 0, power = 0, torque = 0, efficiency = 0, position = 0;
+};
+MotorTelemetry getLeftMotorTelemetry(int index)  { return motorTelemetry(leftMotors, index); }
+MotorTelemetry getRightMotorTelemetry(int index) { return motorTelemetry(rightMotors, index); }
+
+// --- Full IMU diagnostics (for logging) ---
+double getImuRotation() { return imu.has_value() ? imu->get_rotation() : 0.0; }  // continuous, unwrapped
+double getImuPitch()    { return imu.has_value() ? imu->get_pitch()    : 0.0; }
+double getImuRoll()     { return imu.has_value() ? imu->get_roll()     : 0.0; }
+double getImuYaw()      { return imu.has_value() ? imu->get_yaw()      : 0.0; }
+pros::imu_gyro_s_t  getImuGyroRate() { return imu.has_value() ? imu->get_gyro_rate() : pros::imu_gyro_s_t{0, 0, 0}; }
+pros::imu_accel_s_t getImuAccel()    { return imu.has_value() ? imu->get_accel()     : pros::imu_accel_s_t{0, 0, 0}; }
+
+// --- Last PID_driveInches() output/correction (for diagnosing whether a divergence was
+// PID-commanded/saturated vs. caused by something the controller didn't ask for) ---
+double getLastDriveOutput()     const { return lastDriveOutput; }
+double getLastDriveCorrection() const { return lastDriveCorrection; }
 
 //This function prints out the robots pose on the Brain Screen
 void testingPose(){
@@ -289,26 +315,35 @@ This code is used to control robots driving and turning in Auton
 There is PID, Continuous Movement and more!!
 */
 
+// Which signal (if any) PID_driveInches() uses to steer straight.
+enum class HeadingHoldMode {
+    NONE,         // pure motor-encoder distance PID, no lateral/heading feedback
+    IMU_HEADING,  // correct against IMU-derived pose.angle drift from the starting heading
+    ODOM_LATERAL  // correct against the horizontal tracker's raw lateral drift, driven toward zero
+};
+
 // Drive a set distance in inches using the PID config set via setDrivePID().
 // inches        : target forward distance; negative = backward.
 // maxSpeed      : motor power cap, 0..127.
-// holdHeading   : if true, apply proportional correction to keep the starting heading.
+// holdMode      : NONE = encoders only, IMU_HEADING = hold starting heading via IMU,
+//                 ODOM_LATERAL = hold zero lateral drift via the horizontal tracking wheel.
 // driveTolerance: exit when within this many inches of the target (default 0.5").
-// driveHeadingKp: proportional gain for straight-drive heading correction (default 2.0).
+// driveHeadingKp: proportional gain for straight-drive correction (default 2.0).
 void PID_driveInches(double inches, int maxSpeed = 127,
-    double driveTolerance = 0.5, bool holdHeading = false, 
+    double driveTolerance = 0.5, HeadingHoldMode holdMode = HeadingHoldMode::NONE,
     double driveHeadingKp = 2.0) {
         // Reset PID state so each call starts fresh.
         drivePIDConfig.prev_error = 0;
         drivePIDConfig.integral   = 0;
-        
+
         // Snapshot starting pose and time.
         double x0   = pose.x;
         double y0   = pose.y;
         double a0   = pose.angle;
         double a0_rad = a0 * (M_PI / 180.0);
+        double lateral0 = (holdMode == HeadingHoldMode::ODOM_LATERAL) ? getHorizontalTrackerInches() : 0.0;
         uint32_t startTime = pros::millis();
-        
+
         while (true) {
             // Timeout check.
             if (pros::millis() - startTime >= (uint32_t)drivePIDConfig.timeout) break;
@@ -316,27 +351,34 @@ void PID_driveInches(double inches, int maxSpeed = 127,
 
             // Update odometry (honours whatever odomConfig was set in main).
             updatePose();
-            
+
             // Project pose displacement onto the starting forward vector.
             double traveled = (pose.x - x0) * std::sin(a0_rad)
             + (pose.y - y0) * std::cos(a0_rad);
-            
+
             // Tolerance check.
             if (std::fabs(inches - traveled) < driveTolerance) break;
-            
+
             // PID output and clamp to max speed.
             double output = calculatePID(traveled, inches, drivePIDConfig);
             output = std::max(-(double)maxSpeed, std::min((double)maxSpeed, output));
-            
-            // Optional heading correction: steer back to the starting angle.
-            double correction = holdHeading ? driveHeadingKp * wrap180(a0 - pose.angle) : 0.0;
-            
+
+            // Optional straight-line correction, from whichever signal holdMode selects.
+            double correction = 0.0;
+            if (holdMode == HeadingHoldMode::IMU_HEADING) {
+                correction = driveHeadingKp * wrap180(a0 - pose.angle);
+            } else if (holdMode == HeadingHoldMode::ODOM_LATERAL) {
+                correction = driveHeadingKp * (getHorizontalTrackerInches() - lateral0);
+            }
+            lastDriveOutput = output;
+            lastDriveCorrection = correction;
+
             moveLeftSide ((int)(output - correction));
             moveRightSide((int)(output + correction));
-            
+
             pros::delay(10);
         }
-        
+
         // Stop both sides when done.
         moveLeftSide(0);
         moveRightSide(0);
@@ -536,6 +578,26 @@ double prevRightInches = 0;
 double prevVerticalInches = 0;
 double prevHorizontalInches = 0;
 double prevImuHeading = 0;
+
+// --- Last PID_driveInches() output/correction (set each loop tick; see public getters) ---
+double lastDriveOutput = 0;
+double lastDriveCorrection = 0;
+
+// Returns telemetry for one motor in the given side's vector; out-of-range index returns a zeroed struct.
+MotorTelemetry motorTelemetry(std::vector<pros::Motor>& motors, int index) {
+    if (index < 0 || index >= (int)motors.size()) return MotorTelemetry{};
+    pros::Motor& m = motors[index];
+    MotorTelemetry t;
+    t.velocity    = m.get_actual_velocity();
+    t.current     = m.get_current_draw();
+    t.voltage     = m.get_voltage();
+    t.temperature = m.get_temperature();
+    t.power       = m.get_power();
+    t.torque      = m.get_torque();
+    t.efficiency  = m.get_efficiency();
+    t.position    = m.get_position();
+    return t;
+}
 
 // Returns {deltaLeft, deltaRight} in inches and advances the stored prev-values.
 std::pair<double,double> motorDeltas() {
