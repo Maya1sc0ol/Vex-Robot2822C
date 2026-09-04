@@ -1,14 +1,12 @@
 #include "main.h"
 #include <algorithm>
 
-const double DRIVE_KP = 0.6, DRIVE_KI = 0.0, DRIVE_KD = 0.2, DRIVE_TIMEOUT_MS = 3000.0;
+const double DRIVE_KP = 1.5, DRIVE_KI = 0.0, DRIVE_KD = 0.2, DRIVE_TIMEOUT_MS = 3000.0;
 const double TURN_KP = 5.0, TURN_KI = 0.0, TURN_KD = 0.0, TURN_TIMEOUT_MS = 2000.0;
 const double ARM_KP = 3.5, ARM_KI = 0.0, ARM_KD = 0.35, ARM_TIMEOUT_MS = 2000.0;
 
 const double ARM_RAMP_DEG_PER_TICK = 10.0;
-
 const double ARM_GRAVITY_FF_MAX = 25.0;
-
 const double ARM_POSITIONS[5] = {0.00, 25.00, 50.00, 75.00, 100.00};
 
 const double ARM_SPEED_FLAT_ZONE_POS   = 50.0;
@@ -43,17 +41,20 @@ warbots::Drive drive(
 	{-8, -3},
 	{5, 10},
 	3.25,
-	450,
+	0.75,
 	true,
 	1
 );
 
 void initialize() {
+	group.set_brake_mode(pros::E_MOTOR_BRAKE_HOLD);
+
 	pros::Task logo_task([]() {
 		while (true) {
 			drawLogo();
 			pros::delay(20);
 			warbots::screenPrint("Warbot-Template", 7, pros::E_TEXT_LARGE_CENTER);
+			warbots::screenPrint("ARM" + warbots::doubleToString(getArmAngle(), 2), 6);
 		}
 	});
 
@@ -63,7 +64,7 @@ void initialize() {
 	drive.setTurnPID( {TURN_KP,  TURN_KI,  TURN_KD,  TURN_TIMEOUT_MS});
 	armPID = {ARM_KP, ARM_KI, ARM_KD, ARM_TIMEOUT_MS};
 	armGravityFF = ARM_GRAVITY_FF_MAX;
-	group.set_brake_mode(pros::E_MOTOR_BRAKE_HOLD);
+	armRampDegPerTick = ARM_RAMP_DEG_PER_TICK;
 
 	drive.setTrackWidth(10.8);
 	drive.setOdomConfig(warbots::Drive::odomConfig::IMU_HORIZONTAL);
@@ -87,18 +88,37 @@ void autonomous() {
 }
 
 void opcontrol() {
-	pros::Controller master(pros::E_CONTROLLER_MASTER);
-
 	drive.setDriveType(warbots::Drive::SPLIT_ARCADE);
 
 	int armPositionIndex = 0;
 	double armTargetGoal = ARM_POSITIONS[armPositionIndex];
 	setGoal = getArmAngle();
+	armGravityFFScale = 0.0;
 
 	while (true) {
+		// TEST ONLY - remove before competition. Runs the selected auton
+		// synchronously (blocking, same as a real competition switch would) for
+		// bench testing. Pressing Y again mid-run is noticed by the auton's own
+		// blocking loops (via checkAutonAbort()) so it can exit early on its own.
+		if (master.get_digital_new_press(pros::E_CONTROLLER_DIGITAL_Y)) {
+			warbots::autonAbortRequested = false;
+			autonomous();
+
+			setGoal = getArmAngle();
+			armGravityFFScale = 0.0;
+			int nearest = 0;
+			double bestDist = std::fabs(ARM_POSITIONS[0] - setGoal);
+			for (int i = 1; i < 5; i++) {
+				double dist = std::fabs(ARM_POSITIONS[i] - setGoal);
+				if (dist < bestDist) { bestDist = dist; nearest = i; }
+			}
+			armPositionIndex = nearest;
+			armTargetGoal = ARM_POSITIONS[armPositionIndex];
+		}
+
 		double rampStep = armTargetGoal - setGoal;
-		if (rampStep > ARM_RAMP_DEG_PER_TICK) rampStep = ARM_RAMP_DEG_PER_TICK;
-		else if (rampStep < -ARM_RAMP_DEG_PER_TICK) rampStep = -ARM_RAMP_DEG_PER_TICK;
+		if (rampStep > armRampDegPerTick) rampStep = armRampDegPerTick;
+		else if (rampStep < -armRampDegPerTick) rampStep = -armRampDegPerTick;
 		setGoal += rampStep;
 
 		groupControl(setGoal);
