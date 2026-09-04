@@ -96,25 +96,23 @@ void opcontrol() {
 	armGravityFFScale = 0.0;
 
 	while (true) {
-		// TEST ONLY - remove before competition. Runs the selected auton
-		// synchronously (blocking, same as a real competition switch would) for
-		// bench testing. Pressing Y again mid-run is noticed by the auton's own
-		// blocking loops (via checkAutonAbort()) so it can exit early on its own.
-		if (master.get_digital_new_press(pros::E_CONTROLLER_DIGITAL_Y)) {
-			warbots::autonAbortRequested = false;
-			autonomous();
-
-			setGoal = getArmAngle();
-			armGravityFFScale = 0.0;
-			int nearest = 0;
-			double bestDist = std::fabs(ARM_POSITIONS[0] - setGoal);
-			for (int i = 1; i < 5; i++) {
-				double dist = std::fabs(ARM_POSITIONS[i] - setGoal);
-				if (dist < bestDist) { bestDist = dist; nearest = i; }
-			}
-			armPositionIndex = nearest;
-			armTargetGoal = ARM_POSITIONS[armPositionIndex];
-		}
+		// Disabled for now - bench-test auton trigger removed from teleop.
+		// Re-enable by uncommenting when we want to run autons from teleop again.
+		// if (master.get_digital_new_press(pros::E_CONTROLLER_DIGITAL_Y)) {
+		// 	warbots::autonAbortRequested = false;
+		// 	autonomous();
+		//
+		// 	setGoal = getArmAngle();
+		// 	armGravityFFScale = 0.0;
+		// 	int nearest = 0;
+		// 	double bestDist = std::fabs(ARM_POSITIONS[0] - setGoal);
+		// 	for (int i = 1; i < 5; i++) {
+		// 		double dist = std::fabs(ARM_POSITIONS[i] - setGoal);
+		// 		if (dist < bestDist) { bestDist = dist; nearest = i; }
+		// 	}
+		// 	armPositionIndex = nearest;
+		// 	armTargetGoal = ARM_POSITIONS[armPositionIndex];
+		// }
 
 		double rampStep = armTargetGoal - setGoal;
 		if (rampStep > armRampDegPerTick) rampStep = armRampDegPerTick;
