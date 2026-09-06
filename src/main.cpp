@@ -1,8 +1,7 @@
 #include "main.h"
+#include "autonConfig.hpp"
 #include <algorithm>
 
-const double DRIVE_KP = 1.5, DRIVE_KI = 0.0, DRIVE_KD = 0.2, DRIVE_TIMEOUT_MS = 3000.0;
-const double TURN_KP = 5.0, TURN_KI = 0.0, TURN_KD = 0.0, TURN_TIMEOUT_MS = 2000.0;
 const double ARM_KP = 3.5, ARM_KI = 0.0, ARM_KD = 0.35, ARM_TIMEOUT_MS = 2000.0;
 
 const double ARM_RAMP_DEG_PER_TICK = 10.0;
@@ -12,8 +11,8 @@ const double ARM_POSITIONS[5] = {0.00, 25.00, 50.00, 75.00, 100.00};
 const double ARM_SPEED_FLAT_ZONE_POS   = 50.0;
 const double ARM_SPEED_LIMIT_HIGH_POS  = 100.0;
 const double DRIVE_SPEED_SCALE_AT_LOW  = 1.0;
-const double DRIVE_SPEED_SCALE_AT_MID  = 0.8;
-const double DRIVE_SPEED_SCALE_AT_HIGH = 0.7;
+const double DRIVE_SPEED_SCALE_AT_MID  = 0.5;
+const double DRIVE_SPEED_SCALE_AT_HIGH = 0.3;
 
 const double PRECISION_SPEED_SCALE = 0.3;
 
@@ -39,9 +38,9 @@ const double HORIZONTAL_TRACKER_DIAMETER = 2.75;
 
 warbots::Drive drive(
 	{-8, -3},
-	{5, 10},
+	{4, 10},
 	3.25,
-	0.75,
+	0.267,
 	true,
 	1
 );
@@ -60,8 +59,6 @@ void initialize() {
 
 	drive.addHorizontalTrackingWheel(HORIZONTAL_TRACKER_PORT, HORIZONTAL_TRACKER_DIAMETER);
 
-	drive.setDrivePID({DRIVE_KP, DRIVE_KI, DRIVE_KD, DRIVE_TIMEOUT_MS});
-	drive.setTurnPID( {TURN_KP,  TURN_KI,  TURN_KD,  TURN_TIMEOUT_MS});
 	armPID = {ARM_KP, ARM_KI, ARM_KD, ARM_TIMEOUT_MS};
 	armGravityFF = ARM_GRAVITY_FF_MAX;
 	armRampDegPerTick = ARM_RAMP_DEG_PER_TICK;
@@ -84,6 +81,16 @@ void disabled() {}
 void competition_initialize() {}
 
 void autonomous() {
+	// Applied here, once, so every match auto (redAuto/blueAuto/skills/redLeft) gets the same
+	// tuned drive/turn PID without each having to call setDrivePID()/setTurnPID() itself - see
+	// autonConfig.hpp for where to retune. Tuning/diagnostic autons (pidTuneTest,
+	// pidTurnTuneTest, odomSquareTest) still override these with their own local constants
+	// immediately after this runs, so they're unaffected.
+	drive.setDrivePID(autonConfig::DRIVE_PID);
+	drive.setTurnPID(autonConfig::TURN_PID);
+	drive.setDriveExit(autonConfig::DRIVE_EXIT);
+	drive.setTurnExit(autonConfig::TURN_EXIT);
+
 	selector.selected_auton_call();
 }
 
@@ -114,7 +121,7 @@ void opcontrol() {
 		// 	armTargetGoal = ARM_POSITIONS[armPositionIndex];
 		// }
 
-		double rampStep = armTargetGoal - setGoal;
+		double rampStep = warbots::wrapAngleDeg(armTargetGoal - setGoal);
 		if (rampStep > armRampDegPerTick) rampStep = armRampDegPerTick;
 		else if (rampStep < -armRampDegPerTick) rampStep = -armRampDegPerTick;
 		setGoal += rampStep;

@@ -2,6 +2,8 @@
 #include "warbotTemplate/pid.hpp"
 #include "warbotTemplate/util.hpp"
 #include "main.h"
+#include <cmath>
+#include <limits>
 
 
 using namespace warbots;
@@ -69,10 +71,23 @@ double getImuYaw()      { return imu.has_value() ? imu->get_yaw()      : 0.0; }
 pros::imu_gyro_s_t  getImuGyroRate() { return imu.has_value() ? imu->get_gyro_rate() : pros::imu_gyro_s_t{0, 0, 0}; }
 pros::imu_accel_s_t getImuAccel()    { return imu.has_value() ? imu->get_accel()     : pros::imu_accel_s_t{0, 0, 0}; }
 
-// --- Last PID_driveInches() output/correction (for diagnosing whether a divergence was
-// PID-commanded/saturated vs. caused by something the controller didn't ask for) ---
+// --- Last PID_driveInches()/PID_turnDegrees() output/correction (for diagnosing whether a
+// divergence was PID-commanded/saturated vs. caused by something the controller didn't ask for) ---
 double getLastDriveOutput()     const { return lastDriveOutput; }
 double getLastDriveCorrection() const { return lastDriveCorrection; }
+double getLastTurnOutput()      const { return lastTurnOutput; }
+double getLastTurnCorrection()  const { return lastTurnCorrection; }
+// Raw remaining error (target - current) each function was closing, in inches/degrees
+// respectively - lets telemetry distinguish "oscillating around target" from "slowly creeping
+// in" without having to recompute it from pose snapshots.
+double getLastDriveError()      const { return lastDriveError; }
+double getLastTurnError()       const { return lastTurnError; }
+
+// Why PID_driveInches()/PID_turnDegrees() last exited its loop (for diagnosing whether it
+// actually settled vs. got cut off by the raw timeout - see ExitConditions in pid.hpp).
+enum class ExitReason { RUNNING, TIMEOUT, SMALL, BIG, VELOCITY, ABORT };
+ExitReason getLastDriveExitReason() const { return lastDriveExitReason; }
+ExitReason getLastTurnExitReason()  const { return lastTurnExitReason; }
 
 //This function prints out the robots pose on the Brain Screen
 void testingPose(){
@@ -132,6 +147,14 @@ void setDrivePID(PIDconfigs config) {
 
 void setTurnPID(PIDconfigs config) {
     turnPIDConfig = config;
+}
+
+void setDriveExit(ExitConditions e) {
+    driveExit = e;
+}
+
+void setTurnExit(ExitConditions e) {
+    turnExit = e;
 }
 
 void setMirrored(bool m) {
@@ -323,17 +346,21 @@ enum class HeadingHoldMode {
 };
 
 // Drive a set distance in inches using the PID config set via setDrivePID().
-// inches        : target forward distance; negative = backward.
-// maxSpeed      : motor power cap, 0..127.
-// holdMode      : NONE = encoders only, IMU_HEADING = hold starting heading via IMU,
-//                 ODOM_LATERAL = hold zero lateral drift via the horizontal tracking wheel.
-// driveTolerance: exit when within this many inches of the target (default 0.5").
-// driveHeadingKp: proportional gain for straight-drive correction (default 2.0).
+// inches            : target forward distance; negative = backward.
+// maxSpeed          : motor power cap, 0..127.
+// holdMode          : NONE = encoders only, IMU_HEADING = hold starting heading via IMU,
+//                     ODOM_LATERAL = hold zero lateral drift via the horizontal tracking wheel.
+// driveTolerance    : exit when within this many inches of the target (default 0.5").
+// driveHeadingKp    : proportional gain for straight-drive correction (default 2.0).
+// driveRampInPerTick: max inches the PID's setpoint may advance per 10ms tick (default 0.3, i.e.
+//                     a 30in/s ramp rate) - see rampedGoal below.
 void PID_driveInches(double inches, int maxSpeed = 127,
     double driveTolerance = 0.5, HeadingHoldMode holdMode = HeadingHoldMode::NONE,
-    double driveHeadingKp = 2.0) {
+    double driveHeadingKp = 0.4, double driveRampInPerTick = 0.3,
+    double headingTarget = std::numeric_limits<double>::quiet_NaN()) {
         // Reset PID state so each call starts fresh.
         drivePIDConfig.prev_error = 0;
+        drivePIDConfig.prev_measurement = 0;
         drivePIDConfig.integral   = 0;
 
         // Snapshot starting pose and time.
@@ -341,13 +368,44 @@ void PID_driveInches(double inches, int maxSpeed = 127,
         double y0   = pose.y;
         double a0   = pose.angle;
         double a0_rad = a0 * (M_PI / 180.0);
+        // IMU_HEADING holds this heading, not necessarily a0. Default (NaN) preserves the old
+        // behavior of holding wherever the robot happened to be pointed when this call started -
+        // if the caller knows the leg's true intended heading (e.g. 0/90/180/270 on a square),
+        // passing it here lets this leg actively steer back to it instead of faithfully preserving
+        // whatever residual error the previous turn left behind. a0/a0_rad above stay the *actual*
+        // starting heading regardless - they project real displacement onto the direction the robot
+        // is actually driving, which must not be swapped for the intended target.
+        double headingHoldTarget = std::isnan(headingTarget) ? a0 : headingTarget;
         double lateral0 = (holdMode == HeadingHoldMode::ODOM_LATERAL) ? getHorizontalTrackerInches() : 0.0;
         uint32_t startTime = pros::millis();
 
+        // A fresh call hands calculatePID() the *entire* target as error on tick one, so
+        // kP*error saturates straight to maxSpeed in a single 10ms step - a step-function torque
+        // command. odom_square_5.csv showed this landing as a real, repeatable ~5 degree chassis
+        // pitch (front wheels lifting) within the first ~150-300ms of every drive leg, exactly
+        // coincident with the wheels going 0->100in/s in 31-48ms. Same fix as armGoTo()'s
+        // rampedGoal in example.cpp/main.cpp: ease the setpoint in gradually instead of slamming
+        // the raw output, so early-tick error (and therefore commanded torque) grows in rather
+        // than snapping to max. Re-check imu_pitch/gyro_y in the next log to confirm/retune.
+        double rampedGoal = 0.0;
+
+        // Tiered-exit state (see ExitConditions in pid.hpp) - local to this call since
+        // PID_driveInches is a single reentrant blocking call with no persistent state between calls.
+        const int kLoopDelayMs = 10;
+        int smallTimer = 0, bigTimer = 0, velTimer = 0;
+        double prevTraveled = 0;
+        lastDriveExitReason = ExitReason::RUNNING;
+
         while (true) {
-            // Timeout check.
-            if (pros::millis() - startTime >= (uint32_t)drivePIDConfig.timeout) break;
-            if (checkAutonAbort()) break;
+            // Timeout check - the final safety net if nothing below ever settles.
+            if (pros::millis() - startTime >= (uint32_t)drivePIDConfig.timeout) {
+                lastDriveExitReason = ExitReason::TIMEOUT;
+                break;
+            }
+            if (checkAutonAbort()) {
+                lastDriveExitReason = ExitReason::ABORT;
+                break;
+            }
 
             // Update odometry (honours whatever odomConfig was set in main).
             updatePose();
@@ -355,35 +413,92 @@ void PID_driveInches(double inches, int maxSpeed = 127,
             // Project pose displacement onto the starting forward vector.
             double traveled = (pose.x - x0) * std::sin(a0_rad)
             + (pose.y - y0) * std::cos(a0_rad);
+            double error = inches - traveled;
+            lastDriveError = error;
 
-            // Tolerance check.
-            if (std::fabs(inches - traveled) < driveTolerance) break;
+            // Tight tolerance - must hold for smallExitMs before exiting (0 = exit immediately,
+            // same as the old single-tick check).
+            if (std::fabs(error) < driveTolerance) {
+                smallTimer += kLoopDelayMs;
+                if (smallTimer >= driveExit.smallExitMs) {
+                    lastDriveExitReason = ExitReason::SMALL;
+                    break;
+                }
+            } else {
+                smallTimer = 0;
+            }
+
+            // Looser fallback tolerance, so a "close enough" move doesn't have to wait out the
+            // full raw timeout to finish.
+            if (driveExit.bigError > 0) {
+                if (std::fabs(error) < driveExit.bigError) {
+                    bigTimer += kLoopDelayMs;
+                    if (bigTimer >= driveExit.bigExitMs) {
+                        lastDriveExitReason = ExitReason::BIG;
+                        break;
+                    }
+                } else {
+                    bigTimer = 0;
+                }
+            }
+
+            // Stall exit - catches a P(+D)-only controller creeping too slowly (or stopped
+            // dead against static friction) to ever satisfy a tolerance before the raw timeout.
+            if (driveExit.velocityError > 0) {
+                double velocity = traveled - prevTraveled;
+                if (std::fabs(velocity) < driveExit.velocityError) {
+                    velTimer += kLoopDelayMs;
+                    if (velTimer >= driveExit.velocityExitMs) {
+                        lastDriveExitReason = ExitReason::VELOCITY;
+                        break;
+                    }
+                } else {
+                    velTimer = 0;
+                }
+            }
+            prevTraveled = traveled;
+
+            // Advance the ramped setpoint toward the real target, then feed *that* to the PID
+            // instead of `inches` directly (see rampedGoal comment above).
+            double rampStep = std::max(-driveRampInPerTick,
+                std::min(driveRampInPerTick, inches - rampedGoal));
+            rampedGoal += rampStep;
 
             // PID output and clamp to max speed.
-            double output = calculatePID(traveled, inches, drivePIDConfig);
+            double output = calculatePID(traveled, rampedGoal, drivePIDConfig, /*derivativeOnMeasurement=*/true);
             output = std::max(-(double)maxSpeed, std::min((double)maxSpeed, output));
 
             // Optional straight-line correction, from whichever signal holdMode selects.
             double correction = 0.0;
             if (holdMode == HeadingHoldMode::IMU_HEADING) {
-                correction = driveHeadingKp * wrap180(a0 - pose.angle);
+                correction = -driveHeadingKp * wrap180(headingHoldTarget - pose.angle);
             } else if (holdMode == HeadingHoldMode::ODOM_LATERAL) {
                 correction = driveHeadingKp * (getHorizontalTrackerInches() - lateral0);
             }
+            // Clamp like output - without this, a growing heading error can produce a
+            // correction that completely overwhelms output, spinning the robot instead of
+            // just steering it straight.
+            correction = std::max(-(double)maxSpeed, std::min((double)maxSpeed, correction));
             lastDriveOutput = output;
             lastDriveCorrection = correction;
 
             moveLeftSide ((int)(output - correction));
             moveRightSide((int)(output + correction));
 
-            pros::delay(10);
+            pros::delay(kLoopDelayMs);
         }
 
-        // Stop both sides when done.
+        // Actively brake to a stop (instead of just cutting power and coasting), then release
+        // back to coast so a later joystick/PID call isn't fighting a locked drivetrain.
+        for (auto& m : leftMotors)  m.set_brake_mode(pros::E_MOTOR_BRAKE_HOLD);
+        for (auto& m : rightMotors) m.set_brake_mode(pros::E_MOTOR_BRAKE_HOLD);
         moveLeftSide(0);
         moveRightSide(0);
+        pros::delay(kLoopDelayMs);
+        for (auto& m : leftMotors)  m.set_brake_mode(pros::E_MOTOR_BRAKE_COAST);
+        for (auto& m : rightMotors) m.set_brake_mode(pros::E_MOTOR_BRAKE_COAST);
     }
-    
+
     //Moves the robot using a maintained velocity instead of using PID
     /*
     This function takes in:
@@ -421,7 +536,7 @@ void PID_driveInches(double inches, int maxSpeed = 127,
                 break;
             }
             
-            double correction = holdHeading ? holdHeadingkp * wrap180(startingAngle - pose.angle) : 0.0;
+            double correction = holdHeading ? -holdHeadingkp * wrap180(startingAngle - pose.angle) : 0.0;
             
             moveLeftSide((int)speed - correction);
             moveRightSide((int)speed + correction);
@@ -437,38 +552,136 @@ void PID_driveInches(double inches, int maxSpeed = 127,
     // turnTolerance: exit when within this many degrees of the target (default 1.0°).
     void PID_turnDegrees(double degrees, int maxSpeed = 127, double turnTolerance = 1.0) {
         turnPIDConfig.prev_error = 0;
+        turnPIDConfig.prev_measurement = 0;
         turnPIDConfig.integral   = 0;
-        
+
         if (mirrored) degrees = -degrees;
-        
+
+        // A point turn has ~zero real translation, so any horizontal-tracker reading during
+        // one is scrub/offset artifact (the tracker isn't mounted exactly at the pivot), not
+        // real lateral motion - odom_square_3.csv showed 14-17in of spurious pose displacement
+        // per 90deg turn under IMU_HORIZONTAL, even though the raw drive encoders stayed
+        // symmetric (confirming it really was a pure pivot). Drop to IMU_ONLY for the turn's
+        // duration so heading still comes from the IMU but the tracker can't corrupt pose.x/y,
+        // then restore whatever odomConfig the caller had set.
+        odomConfig savedOdomConfig = currentOdomConfig;
+        currentOdomConfig = odomConfig::IMU_ONLY;
+
         double a0 = pose.angle;
         uint32_t startTime = pros::millis();
-        
+
+        const int kLoopDelayMs = 10;
+        int smallTimer = 0, bigTimer = 0, velTimer = 0;
+        double prevTurned = 0;
+        lastTurnExitReason = ExitReason::RUNNING;
+
         while (true) {
-            if (pros::millis() - startTime >= (uint32_t)turnPIDConfig.timeout) break;
-            if (checkAutonAbort()) break;
+            if (pros::millis() - startTime >= (uint32_t)turnPIDConfig.timeout) {
+                lastTurnExitReason = ExitReason::TIMEOUT;
+                break;
+            }
+            if (checkAutonAbort()) {
+                lastTurnExitReason = ExitReason::ABORT;
+                break;
+            }
 
             updatePose();
 
             // Signed heading change since the start, wrapped to [-180, 180].
             double turned = wrap180(pose.angle - a0);
-            
-            if (std::fabs(degrees - turned) < turnTolerance) break;
-            
-            double output = calculatePID(turned, degrees, turnPIDConfig);
+            double error = degrees - turned;
+            lastTurnError = error;
+
+            if (std::fabs(error) < turnTolerance) {
+                smallTimer += kLoopDelayMs;
+                if (smallTimer >= turnExit.smallExitMs) {
+                    lastTurnExitReason = ExitReason::SMALL;
+                    break;
+                }
+            } else {
+                smallTimer = 0;
+            }
+
+            if (turnExit.bigError > 0) {
+                if (std::fabs(error) < turnExit.bigError) {
+                    bigTimer += kLoopDelayMs;
+                    if (bigTimer >= turnExit.bigExitMs) {
+                        lastTurnExitReason = ExitReason::BIG;
+                        break;
+                    }
+                } else {
+                    bigTimer = 0;
+                }
+            }
+
+            if (turnExit.velocityError > 0) {
+                double velocity = turned - prevTurned;
+                if (std::fabs(velocity) < turnExit.velocityError) {
+                    velTimer += kLoopDelayMs;
+                    if (velTimer >= turnExit.velocityExitMs) {
+                        lastTurnExitReason = ExitReason::VELOCITY;
+                        break;
+                    }
+                } else {
+                    velTimer = 0;
+                }
+            }
+            prevTurned = turned;
+
+            double output = calculatePID(turned, degrees, turnPIDConfig, /*derivativeOnMeasurement=*/true);
             output = std::max(-(double)maxSpeed, std::min((double)maxSpeed, output));
-            
-            // Positive output = CW: right side forward, left side backward.
-            moveLeftSide (-(int)output);
-            moveRightSide( (int)output);
-            
-            pros::delay(10);
+            lastTurnOutput = output;
+            lastTurnCorrection = 0.0;  // no separate steering term for a point-turn
+
+            // Positive output = CW: left side forward, right side backward. (Matches pose.angle's
+            // CW-positive convention, fed by the IMU - see updatePose()/imuDelta(). This mapping
+            // was previously flipped, which drove the robot CCW for positive error and caused a
+            // sign-inverted feedback loop: pose.angle moved the opposite way the controller
+            // expected, so error grew without bound regardless of gains - see SPLIT_ARCADE in
+            // control() for the same CW convention done correctly.)
+            moveLeftSide ( (int)output);
+            moveRightSide(-(int)output);
+
+            pros::delay(kLoopDelayMs);
         }
-        
+
+        currentOdomConfig = savedOdomConfig;
+
+        // The tracking wheels kept physically scrubbing through the turn (a point turn isn't a
+        // true pivot, so they read real but non-representative distance) while verticalDelta()/
+        // horizontalDelta() weren't being called to consume it. Re-sync their prev*Inches
+        // baselines now so that backlog gets discarded instead of landing as one huge spurious
+        // deltaForward/deltaLateral on savedOdomConfig's next updatePose() call - see
+        // odom_square_4.csv, which showed the IMU_ONLY swap above just relocating the ~17-18in
+        // spurious pose jump from "smeared across the turn" to "dumped in one frame at the start
+        // of the next drive leg" instead of eliminating it.
+        verticalDelta();
+        horizontalDelta();
+
+        // Actively brake to a stop, then release back to coast (see PID_driveInches for why).
+        for (auto& m : leftMotors)  m.set_brake_mode(pros::E_MOTOR_BRAKE_HOLD);
+        for (auto& m : rightMotors) m.set_brake_mode(pros::E_MOTOR_BRAKE_HOLD);
         moveLeftSide(0);
         moveRightSide(0);
+        pros::delay(kLoopDelayMs);
+        for (auto& m : leftMotors)  m.set_brake_mode(pros::E_MOTOR_BRAKE_COAST);
+        for (auto& m : rightMotors) m.set_brake_mode(pros::E_MOTOR_BRAKE_COAST);
     }
-    
+
+    // Point-turn to an ABSOLUTE heading (unlike PID_turnDegrees, which is relative to wherever
+    // the robot happens to be pointed when called). Computes the shortest-path delta from the
+    // current pose.angle and drives that through the existing point-turn PID, so each turn
+    // self-corrects toward the true target instead of compounding onto whatever the previous
+    // turn's overshoot left behind - odom_square_7.csv showed four relative +90 turns drifting
+    // to +7.9deg by the end of the square instead of closing back to 0.
+    // Known limitation: does not account for `mirrored` - PID_turnDegrees applies its own mirror
+    // flip internally, so calling this under setMirrored(true) would double-flip the delta. No
+    // current caller combines the two (redLeft(), the only mirrored routine, doesn't turn).
+    void PID_turnToHeading(double targetAngle, int maxSpeed = 127, double turnTolerance = 1.0) {
+        double delta = wrap180(targetAngle - pose.angle);
+        PID_turnDegrees(delta, maxSpeed, turnTolerance);
+    }
+
     enum swingSide {
         LOCK_LEFT  = 0,  // left side held, right side drives
         LOCK_RIGHT = 1   // right side held, left side drives
@@ -544,6 +757,8 @@ private:
 // --- PID configs (set via setters) ---
 PIDconfigs drivePIDConfig = {0, 0, 0, 3000};
 PIDconfigs turnPIDConfig  = {0, 0, 0, 3000};
+ExitConditions driveExit  = {};
+ExitConditions turnExit   = {};
 
 // --- Driver control speed cap (set via setSpeedScale()) ---
 double speedScale = 1.0;
@@ -579,9 +794,15 @@ double prevVerticalInches = 0;
 double prevHorizontalInches = 0;
 double prevImuHeading = 0;
 
-// --- Last PID_driveInches() output/correction (set each loop tick; see public getters) ---
+// --- Last PID_driveInches()/PID_turnDegrees() output/correction (set each loop tick; see public getters) ---
 double lastDriveOutput = 0;
 double lastDriveCorrection = 0;
+double lastTurnOutput = 0;
+double lastTurnCorrection = 0;
+double lastDriveError = 0;
+double lastTurnError = 0;
+ExitReason lastDriveExitReason = ExitReason::RUNNING;
+ExitReason lastTurnExitReason  = ExitReason::RUNNING;
 
 // Returns telemetry for one motor in the given side's vector; out-of-range index returns a zeroed struct.
 MotorTelemetry motorTelemetry(std::vector<pros::Motor>& motors, int index) {

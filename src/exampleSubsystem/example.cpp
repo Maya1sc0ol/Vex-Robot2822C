@@ -5,7 +5,7 @@
 #include <cmath>
 
 double getArmAngle() {
-    return armRotation.get_angle() / 100.0;
+    return warbots::wrapAngleDeg(armRotation.get_angle() / 100.0);
 }
 
 void groupControl(double goal) {
@@ -41,7 +41,7 @@ void armGoTo(double targetDeg, double toleranceDeg) {
         if (pros::millis() - startTime >= (uint32_t)armPID.timeout) break;
         if (warbots::checkAutonAbort()) break;
 
-        double rampStep = targetDeg - rampedGoal;
+        double rampStep = warbots::wrapAngleDeg(targetDeg - rampedGoal);
         if (rampStep > armRampDegPerTick) rampStep = armRampDegPerTick;
         else if (rampStep < -armRampDegPerTick) rampStep = -armRampDegPerTick;
         rampedGoal += rampStep;
